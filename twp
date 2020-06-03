@@ -1,0 +1,619 @@
+#!/usr/bin/python3
+
+# Imports for basic usage
+import json
+import sys
+import matplotlib.pyplot as plt
+import numpy as np
+import math
+import hashlib
+import random
+import os.path
+
+# Use NTLK WordNet data to get word associations
+def getTextData():
+
+    # Dev imports
+    import nltk # pip3 install nltk
+    from nltk.corpus import wordnet as wn # pip3 install nltk
+    from nltk.corpus import words
+
+    # Create file if doesn't already exist
+    if not os.path.isfile("data.json"):
+        with open("data.json", "w") as f:
+            f.write("{}")
+
+    # Load the training data
+    data = {}
+    with open("data.json", "r") as f:
+        data = json.load(f)
+
+    # Load WordNet data
+    nltk.download('wordnet')
+    nltk.download('words')
+
+    # Load the word list
+    words = set(words.words())
+    words.update(set(wn.all_lemma_names()))
+    print("Loaded " + str(len(words)) + " words from corpus data")
+
+    # For each word
+    for word in words:
+
+        # Remove newlines
+        word = word.strip()
+
+        # Ignore empty lines
+        if len(word) > 0:
+
+            # Create empty set (only allowing unique words)
+            syns = set({})
+
+            # Get all the WordNet synonyms
+            for index, ss in enumerate(wn.synsets(word)):
+                lemmas = set(ss.lemma_names())
+
+                # Remove any hyphenated words and make lowercase
+                stripped = [x.replace("-", "").lower() for x in lemmas if "_" not in x and x != "null" and len(x.replace("-","")) > 0]
+
+                # Add to the set for this word
+                syns.update(stripped)
+
+                # First syn is the word itself
+                if index == 0:
+
+                    # Add words from word description 
+                    description = ss.definition().lower().replace("-", " ").split()
+
+                    # Add to the set for this word
+                    syns.update(description)
+
+            # Force key to also be lowercase
+            word = word.lower()
+
+            # Add the element if not already present
+            if word not in data.keys(): data[word] = {"idealColour": "", "similar": []}
+
+            # Update the similar list
+            data[word]["similar"] = list(syns)
+
+    # Save the data again
+    with open("data.json", "w") as f:
+        json.dump(data, f)
+        f.write("\n")
+
+# Download colour data from cymbolism.com
+# TODO https://xkcd.com/color/rgb.txt
+# https://matplotlib.org/3.2.1/tutorials/colors/colors.html#xkcd-colors
+def getImageData():
+
+    # Dev imports
+    import urllib.request
+    import re
+    import time
+
+    # A site where people vote on what colour they associate with a word
+    baseURL = "http://cymbolism.com/words"
+
+    # Seconds to wait between requests
+    waitTime = 2
+
+    # Create file if doesn't already exist
+    if not os.path.isfile("data.json"):
+        with open("data.json", "w") as f:
+            f.write("{}")
+
+    # Load the training data
+    data = {}
+    with open("data.json", "r") as f:
+        data = json.load(f)
+
+    # Get the base page containing all the different links
+    basePage = urllib.request.urlopen(baseURL)
+    baseHTML = basePage.read().decode("utf8")
+    basePage.close()
+
+    # Find all the links
+    links = re.findall('href="http://cymbolism\\.com/words/.+?"', baseHTML)
+    print("Loading " + str(len(links)) + " ideal colours")
+    print("This'll take about " + str(waitTime*len(links)) + " seconds (" + str(waitTime*len(links)/60.0) + " minutes)")
+
+    # For each link
+    for link in links:
+
+        # Get the page
+        linkPage = urllib.request.urlopen(link[6:-1])
+        linkHTML = linkPage.read().decode("utf8")
+        linkPage.close()
+
+        # Extract the color and word
+        colorURL = re.search('href="http://cymbolism\\.com/colors/.+?"', linkHTML)[0]
+        color = colorURL[-7:-1]
+        wordsText = link[link.rfind("/")+1:-1]
+
+        # Split "art%20deco" into ["art", "deco"]
+        words = wordsText.replace("%20", " ").lower().split()
+
+        # Treat each split word equally
+        for word in words:
+
+            # Add the element if not already present
+            if word not in data.keys(): data[word] = {"idealColour": "", "similar": []}
+
+            # Update the colour
+            data[word]["idealColour"] = color
+
+        # Don't overload the servers
+        time.sleep(waitTime)
+
+    # Save the data again
+    with open("data.json", "w") as f:
+        json.dump(data, f)
+        f.write("\n")
+
+# Using data.json, create and optimise map.json 
+def optimiseMapping():
+
+    # Create colour space array mapping colors -> indices
+    colourSpace = np.zeros((256, 256, 256)) - 1
+
+    # Load optimisation data
+    data = {}
+    with open("data.json", "r") as f:
+        data = json.load(f)
+
+    # Get the mapping from indices -> words
+    wordIndices = list(data.keys())
+
+    # Seed rng
+    random.seed("twp")
+
+    # Keep track of how many colour mappings are known
+    positionsKnown = 0
+
+    # If a mapping exists already
+    if os.path.isfile("map.json") and False: # False is for debugging
+
+        # Load it
+        mapping = loadMapping()
+
+        # Populate colour space
+        for index, word in enumerate(wordIndices):
+
+            # If the word has a colour mapping saved
+            if word in mapping.keys():
+                r, g, b = mapping[word]
+                colourSpace[r, g, b] = index
+                data[word]["added"] = True
+                positionsKnown += 1
+
+            # If it doesn't, note it
+            else:
+                data[word]["added"] = False
+
+    # If mapping doesn't exist
+    else:
+
+        # Create a blank mapping, noting that all words known need to be added
+        mapping = {}
+        for word in wordIndices:
+            data[word]["added"] = False
+
+    # For each pass of words with an ideal colour
+    passesKnown = 12
+    for i in range(passesKnown):
+        print("Known init pass " + str(i+1) + ": know locations of " + str(len(mapping.keys())) + "/" + str(len(wordIndices)) +  " words")
+
+        # For each word in data
+        for index, word in enumerate(wordIndices):
+
+            # If not added already
+            if not data[word]["added"] and len(data[word]["idealColour"]) > 0:
+
+                # Convert the hex colour to a col tuple
+                r, g, b = hexToCol(data[word]["idealColour"])
+
+                # Attempt to place it there
+                if colourSpace[r, g, b] == -1:
+                    colourSpace[r, g, b] = index
+                    data[word]["added"] = True
+                    mapping[word] = (r, g, b)
+
+                # If failed
+                else:
+
+                    # Generate random displacement
+                    dr = random.randint(-5, 5)
+                    dg = random.randint(-5, 5)
+                    db = random.randint(-5, 5)
+
+                    # Limit to valid range
+                    r = max(min(r + dr, 255), 0)
+                    g = max(min(g + dg, 255), 0)
+                    b = max(min(b + db, 255), 0)
+
+                    # Attempt to place
+                    if colourSpace[r, g, b] == -1:
+                        colourSpace[r, g, b] = index
+                        mapping[word] = (r, g, b)
+                        data[word]["added"] = True
+
+    # For each pass over the words that don't have an ideal colour
+    passesUnknown = 12
+    for i in range(passesUnknown):
+        print("Unknown init pass " + str(i+1) + ": know locations of " + str(len(mapping.keys())) + "/" + str(len(wordIndices)) +  " words")
+
+        # For each word in data
+        for index, word in enumerate(wordIndices):
+
+            # If not added already
+            if not data[word]["added"]:
+
+                # For each similiar word
+                for syn in data[word]["similar"]:
+
+                    # If the similiar word has been placed
+                    if syn in mapping.keys():
+                        if data[syn]["added"]:
+
+                            # Get the location placed
+                            r, g, b = mapping[syn]
+
+                            # Generate random displacement
+                            dr = random.randint(-5, 5)
+                            dg = random.randint(-5, 5)
+                            db = random.randint(-5, 5)
+
+                            # Limit to valid range
+                            r = max(min(r + dr, 255), 0)
+                            g = max(min(g + dg, 255), 0)
+                            b = max(min(b + db, 255), 0)
+
+                            # Attempt to place
+                            if colourSpace[r, g, b] == -1:
+                                colourSpace[r, g, b] = index
+                                data[word]["added"] = True
+                                mapping[word] = (r, g, b)
+                                break
+
+    # Any word not assigned, give it a random unique colour TODO
+
+    # Save the mapping
+    saveMapping(mapping)
+
+    # For each iteration TODO
+    maxOptPasses = 20
+    saveEvery = 1
+    avg = 0
+    totalDistance = 0
+    numWords = len(mapping.keys())
+    for i in range(maxOptPasses):
+
+        avg = totalDistance / float(numWords)
+
+        # Every so often, save the mapping and output
+        if i % saveEvery == 0: 
+            saveMapping(mapping)
+            print("Opt pass " + str(i) + ", averaging " + str(avg))
+
+        # Sum the total distance to the target for averaging
+        totalDistance = 0
+
+        # For each word
+        for word in list(mapping.keys()):
+
+            # Get the current colour location
+            r, g, b = mapping[word]
+            newR, newG, newB = (r, g, b)
+            
+            # If it has an ideal colour
+            if len(data[word]["idealColour"]) > 0:
+
+                # Usually pick this colour to move towards
+                if random.randint(0, 10) <= 9:
+
+                    newR, newG, newB = hexToCol(data[word]["idealColour"])
+
+                # Occasionally pick a random similar word to move towards
+                else:
+
+                    r = random.randint(0, len(data[word]["similar"])-1)
+                    targetWord = data[word]["similar"][r]
+                    if targetWord in mapping.keys():
+                        newR, newG, newB = mapping[targetWord]
+
+            # If it doesn't
+            else:
+
+                # Pick a random similiar word to move towards
+                r = random.randint(0, len(data[word]["similar"])-1)
+                targetWord = data[word]["similar"][r]
+                if targetWord in mapping.keys():
+                    newR, newG, newB = mapping[targetWord]
+
+            # Determine the delta to head towards the new location
+            # TODO DEBUG always seems to head towards 0, 0, 0
+            deltaR = newR - r
+            deltaG = newG - g
+            deltaB = newB - b
+
+            # Normalise
+            total = max(deltaR + deltaG + deltaB, 1)
+            deltaRNorm = round(deltaR / total)
+            deltaGNorm = round(deltaG / total)
+            deltaBNorm = round(deltaB / total)
+
+            # Update the total total
+            totalDistance += total
+
+            # Position to swap with
+            swapR = r + deltaRNorm
+            swapG = g + deltaGNorm
+            swapB = b + deltaBNorm
+
+            # Swap towards this colour location if, only swap if empty
+            temp = colourSpace[swapR, swapG, swapB]
+            if temp == -1:
+                colourSpace[swapR, swapG, swapB] = colourSpace[r, g, b]
+                colourSpace[r, g, b] = temp
+                mapping[word] = (swapR, swapG, swapB)
+
+    # Assign all other combinations of letters a random unique colour TODO
+
+    # Plot
+    plt.imshow(colourSpace[:,:,0], interpolation='none')
+    plt.axis('off')
+    plt.show()
+
+# Strip words ready for coversion to colours
+def stripWords(words):
+
+    # Iterate over the words
+    newWords = []
+    for i in range(len(words)):
+
+        # Lowercase and remove newlines/whitespace
+        toAdd = []
+        toAdd.append(words[i].lower().strip())
+
+        # Remove various chars
+        toAdd[0] = toAdd[0].replace("\"", "")
+        toAdd[0] = toAdd[0].replace(".", "")
+        toAdd[0] = toAdd[0].replace(",", "")
+        toAdd[0] = toAdd[0].replace("!", "")
+        toAdd[0] = toAdd[0].replace("?", "")
+        toAdd[0] = toAdd[0].replace(":", "")
+        toAdd[0] = toAdd[0].replace(";", "")
+        toAdd[0] = toAdd[0].replace("(", "").replace(")", "")
+
+        # Remove leading '
+        if len(toAdd[0]) > 0:
+            if toAdd[0][0] == "'":
+                toAdd[0] = toAdd[0][1:]
+
+        # Remove trailing '
+        if len(toAdd[0]) > 0:
+            if toAdd[0][-1] == "'":
+                toAdd[0] = toAdd[0][:-1]
+
+        # Split hypen-ated words into their components
+        if "-" in toAdd[0] and len(toAdd[0].replace("-", "")) >= 2:
+            toAdd = toAdd[0].split("-")
+
+        # Remove any remaining hyphens and check non zero length before adding
+        for j in range(len(toAdd)):
+            toAdd[j] = toAdd[j].replace("-", "")
+            if len(toAdd[j]) > 0:
+                newWords.append(toAdd[j])
+
+    return newWords
+
+# Plot an array of colours, to a file if saveInstead
+def plotCols(cols, saveInstead):
+
+    # Initial guess at best dimensions
+    total = len(cols)
+    rootWidth = math.ceil(math.sqrt(total))
+    height = total
+    width = 1
+
+    # Test different widths until find one that factors nicely
+    for width in range(rootWidth, 0, -1):
+        if total % width == 0:
+            height = int(total / width)
+            break
+
+    # Convert to numpy data
+    data = np.array(cols, dtype='uint8').reshape((height, width, 3))
+
+    # Plot
+    plt.imshow(data, interpolation='none')
+    plt.axis('off')
+
+    # Either show or save
+    if saveInstead:
+        plt.save("output.png")
+    else:
+        plt.show()
+
+# Load a mapping from a file
+def loadMapping(mapFile="map.json"):
+    mapping = {}
+    with open(mapFile, "r") as f:
+        mapping = json.load(f)
+    return mapping
+
+# Write a mapping to a file
+def saveMapping(mapping, mapFile="map.json"):
+    with open(mapFile, "w") as f:
+        json.dump(mapping, f)
+        f.write("\n")
+
+# Use a mapping to get the colours for a set of words
+def useMapping(mapping, wordsToConvert):
+
+    # Loop over the words
+    outputColours = []
+    for word in wordsToConvert:
+
+        # If the word is known, get the colour from the dict
+        if word in mapping.keys():
+            outputColours.append(tuple(mapping[word]))
+
+        # If the word isn't known, use black
+        else:
+            print("Unknown word: " + word)
+            outputColours.append((0, 0, 0))
+
+    return outputColours
+
+# Convert a colour hex to a color tuple, e.g. ff0000 -> (255, 0, 0)
+def hexToCol(hexVal):
+    return (int(hexVal[0:2], 16), int(hexVal[2:4], 16), int(hexVal[4:6], 16))
+
+def printHelp():
+
+    print("TWP - Thousand Word Picture")
+    print("")
+    print("Description:")
+    print(" Converts a word (or many) into colours.")
+    print(" This uses a one-to-one mapping optimised to")
+    print(" group similiar words together and have the")
+    print(" colours represent the words as best as possible.")
+    print("")
+    print("Usage:")
+    print(" ./twp [flags?] [\"words\"/filename]")
+    print("")
+    print("General Flags:")
+    print(" --help  -h         output this message")
+    print("")
+    print("Output Flags:")
+    print(" --disp  -d         display the resulting image (default)")
+    print(" --save  -s         save the resulting image")
+    print(" --term  -t         output as text instead of an image")
+    print("")
+    print("Dev Flags:")
+    print("         -c         check the data.json object for a word")
+    print("         -1         add synonyms to data.json, long")
+    print("         -2         add ideal colours to data.json, long")
+    print("         -3         optimise mapping using data.json, long")
+
+if __name__ == "__main__":
+
+    # Param defaults
+    action = "help"
+    inputMode = "file"
+    outputMode = "disp"
+    mapFile = "map.json"
+    wordFile = "words.txt"
+
+    # The words/files to process
+    wordArgs = []
+
+    # Loop over the arguments given
+    ind = 1
+    while ind < len(sys.argv):
+        arg = sys.argv[ind]
+
+        # If asking for the help text
+        if arg in ["--help", "-h"]:
+            action = "help"
+        elif arg in ["--disp", "-d"]:
+            outputMode = "disp"
+        elif arg in ["--save", "-s"]:
+            outputMode = "save"
+        elif arg in ["--term", "-t"]:
+            outputMode = "term"
+        elif arg in ["-1"]:
+            action = "1"
+        elif arg in ["-2"]:
+            action = "2"
+        elif arg in ["-3"]:
+            action = "3"
+        elif arg in ["-c"]:
+            action = "c"
+
+        # Otherwise it's either a word list or a filename
+        else:
+            if "." in arg:
+                inputMode = "file"
+                wordArgs.append(arg)
+            else:
+                inputMode = "words"
+                wordArgs.extend(arg.split())
+            if action == "help": action = "use"
+
+        ind += 1
+
+    # If asking for help
+    if action == "help":
+        printHelp()
+
+    # Normal usage
+    elif action == "use":
+
+        # Load the mapping
+        mapping = loadMapping(mapFile)
+
+        # If using files
+        if inputMode == "file":
+            with open(wordArgs[0]) as f:
+                wordsToConvert = f.read().strip().split()
+
+        # If using quoted words
+        elif inputMode == "words":
+            wordsToConvert = wordArgs
+
+        # Get rid of certain characters, force lowercase, split hyphons
+        wordsToConvert = stripWords(wordsToConvert)
+
+        # Use the mapping
+        outputCols = useMapping(mapping, wordsToConvert)
+
+        # Output the resulting colours as text
+        if outputMode == "term":
+            for index, word in enumerate(wordsToConvert):
+                print(word + " -> " + repr(outputCols[index]))
+
+        # Output the resulting colours as an image to the screen
+        elif outputMode == "disp":
+            plotCols(outputCols, False)
+
+        # Output the resulting colours as an image to a file
+        elif outputMode == "save":
+            plotCols(outputCols, True)
+
+    # Add synonyms to data file
+    elif action == "1":
+
+        getTextData()
+
+    # Add colours to data file
+    elif action == "2":
+
+        getImageData()
+
+    # Optimising an existing mapping
+    elif action == "3":
+
+        optimiseMapping()
+
+    # Return the object for a given word from data.json
+    elif action == "c":
+
+        # Load the data
+        data = {}
+        with open("data.json", "r") as f:
+            data = json.load(f)
+
+        # Return the object for the first word given
+        print(data[wordArgs[0]])
+
+
+
+
+
+
+
+
+
