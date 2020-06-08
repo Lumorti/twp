@@ -7,13 +7,13 @@ TWP mapping v1.0 contains over 630,000 words, including names and verb conjugati
 Note than some words may have been optimised in a weird way, but in general they're pretty close.
 
 This repo contains three main files:
- - mapping.json - the mapping as a JSON file (from word -> colour hex) 
+ - map.json - the mapping as a JSON file (from word -> colour hex) 
  - inverse.json - the inverse mapping as a JSON file  (from colour hex -> word)
  - twp - a Python script for easy use/regeneration of this mapping
 
 This uses the Python Natural Language Toolkit (NLTK) and its various word/colour lists (WordNet/CSS4/xkcd), 
-along with colour association data scraped from from <http://www.cymbolism.com>. These data sets are only required if you want
-to regenerate the mapping, see dependencies below.
+along with colour association data scraped from from <http://www.cymbolism.com>. 
+These data sets are only required if you want to regenerate the mapping, see dependencies below.
 
 ## Example
 
