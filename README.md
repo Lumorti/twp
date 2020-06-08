@@ -3,7 +3,7 @@
 
 A one-to-one mapping of every English word to a unique colour.
 This is optimised so that similar words are similar colours, with words generally matching the colour you'd expect.
-Mapping V1.0 contains over 630,000 words, including names and verb conjugations.
+Mapping v1.0 contains over 630,000 words, including names and verb conjugations.
 Note than some words may have been optimised in a weird way, but in general they're pretty close.
 
 This repo contains three main files:
@@ -17,9 +17,11 @@ to regenerate the mapping, see dependencies below.
 
 ## Example
 
-The following is the conversion of the Emma by Jane Austen (public domain):
+The following is the conversion of the entirety of Emma by Jane Austen, which is in the public domain. 
+After optimising it seems that green is the preferred colour of punctuation (including newlines), hence the prevalence.
+This can be reverted back to the original text, albeit with some formatting changes.
 
-![Emma by Jane Austen, converted to colours using TWP mapping V1.0](https://github.com/lumorti/twp/raw/master/emma.png "Example conversion of Emma")
+![Emma by Jane Austen, converted to colours using TWP mapping v1.0](https://github.com/lumorti/twp/raw/master/emma.png "Example conversion of Emma")
 
 ## Dependencies
 
