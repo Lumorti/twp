@@ -3,7 +3,7 @@
 
 A one-to-one mapping of every English word to a unique colour.
 This is optimised so that similar words are similar colours, with words generally matching the colour you'd expect.
-Mapping v1.0 contains over 630,000 words, including names and verb conjugations.
+TWP mapping v1.0 contains over 630,000 words, including names and verb conjugations.
 Note than some words may have been optimised in a weird way, but in general they're pretty close.
 
 This repo contains three main files:
@@ -21,7 +21,7 @@ The following is the conversion of the entirety of Emma by Jane Austen, which is
 After optimising it seems that green is the preferred colour of punctuation (including newlines), hence the prevalence.
 This can be reverted back to the original text, albeit with some formatting changes.
 
-![Emma by Jane Austen, converted to colours using TWP mapping v1.0](https://github.com/lumorti/twp/raw/master/emma.png "Example conversion of Emma")
+![Emma by Jane Austen, converted to colours using TWP mapping v1.0](https://github.com/lumorti/twp/raw/master/emma.png "Conversion of Emma by Jane Austen using TWP mapping v1.0")
 
 ## Dependencies
 
@@ -45,14 +45,12 @@ To convert a text file to an image using the word to colour mapping:
 To use the inverse mapping to approximately reverse this process:
 
 ```bash
-./twp --invert in.png out.txt
 ./twp -i in.png out.txt
 ```
 
 To just use the words given as arguments and then display:
 
 ```bash
-./twp --words "summer is hot"
 ./twp -w "summer is hot"
 ```
 
@@ -72,7 +70,7 @@ First the data file and mappings should be deleted if they exist:
 rm -f data.json mapping.json inverse.json
 ```
 
-Then the word list and word association data needs to be loaded, requiring NLTK:
+Then the word list and word association data needs to be loaded:
 
 ```bash
 ./twp -1
